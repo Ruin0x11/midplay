@@ -1,0 +1,7 @@
+[package]
+name = "midplay"
+version = "0.1.0"
+authors = ["Ian Pickering <ipickering2@gmail.com>"]
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { git = "https://github.com/Ruin0x11/winapi-rs", branch = "create-mci-binding", features = ["mmsystem", "winuser", "minwindef"] }
