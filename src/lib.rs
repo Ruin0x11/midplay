@@ -1,8 +1,9 @@
 #[cfg(windows)] extern crate winapi;
 extern crate midir;
 extern crate midly;
-#[macro_use] extern crate lazy_static;
-#[macro_use] extern crate anyhow;
+extern crate lazy_static;
+extern crate anyhow;
+extern crate log;
 
 pub mod generic;
 

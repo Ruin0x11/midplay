@@ -1,8 +1,7 @@
 use std::path::Path;
 
+use std::fs;
 use std::time::Duration;
-use std::io::{stdin, stdout, Write};
-use std::error::Error;
 use std::thread::{self, JoinHandle};
 use std::sync::mpsc::{self, Sender, Receiver};
 use std::sync::{Arc, Mutex};
@@ -10,50 +9,120 @@ use std::cell::RefCell;
 use lazy_static::lazy_static;
 use anyhow::{anyhow, Result};
 
-use midir::{MidiOutput, MidiOutputPort, MidiOutputConnection};
+use midir::{MidiOutput, MidiOutputConnection};
+use midly::Smf;
+use log::*;
+
+mod midi_container;
+mod time_controller;
+
+use self::midi_container::{MidiContainer, MidiTimedEvent};
+use self::time_controller::{TimeController, TimeListener, TimeListenerTrait};
 
 enum MidiThreadMsg {
     Stop
 }
 
+#[derive(Clone, Copy)]
+enum MidiState {
+    Stopped,
+    StartPlaying(i64),
+    Playing,
+    EOF
+}
+
+struct MidiWorker<'m> {
+    conn_out: MidiOutputConnection,
+    receiver: Arc<Mutex<Receiver<MidiThreadMsg>>>,
+    time_control: TimeController,
+    state: MidiState,
+    events: Vec<MidiTimedEvent<'m>>,
+    idx: usize
+}
+
 struct MidiThread {
     handle: JoinHandle<()>,
-    sender: Sender<MidiThreadMsg>
+    sender: Sender<MidiThreadMsg>,
+    time_listener: TimeListener,
 }
 
-struct MidiWorker {
-    conn_out: MidiOutputConnection,
-    receiver: Arc<Mutex<Receiver<MidiThreadMsg>>>
+fn midly_to_raw<'m>(kind: &'m midly::TrackEventKind<'m>) -> Option<Vec<u8>> {
+    match kind.as_live_event() {
+        Some(event) => {
+            let mut vec = Vec::new();
+            event.write(&mut vec);
+            Some(vec)
+        },
+        None => None
+    }
 }
 
-fn work(mut worker: MidiWorker) {
-    loop {
-        match worker.receiver.lock().unwrap().try_recv() {
-            Ok(MidiThreadMsg::Stop) => break,
-            Err(_) => ()
+impl<'m> MidiWorker<'m> {
+    fn start_playing(&mut self, pos_us: i64) -> MidiState {
+        self.idx = 0;
+        self.time_control.set_pos_us(pos_us as i64);
+        while self.idx < self.events.len() && pos_us >= self.events[self.idx].0 as i64 {
+            self.idx += 1;
         }
+        if self.idx >= self.events.len() {
+            self.time_control.stop();
+            MidiState::EOF
+        } else {
+            self.time_control.start();
+            MidiState::Playing
+        }
+    }
 
-        // Define a new scope in which the closure `play_note` borrows conn_out, so it can be called easily
-        let mut play_note = |note: u8, duration: u64| {
-            const NOTE_ON_MSG: u8 = 0x90;
-            const NOTE_OFF_MSG: u8 = 0x80;
-            const VELOCITY: u8 = 0x64;
-            // We're ignoring errors in here
-            let _ = worker.conn_out.send(&[NOTE_ON_MSG, note, VELOCITY]);
-            thread::sleep(Duration::from_millis(duration * 150));
-            let _ = worker.conn_out.send(&[NOTE_OFF_MSG, note, VELOCITY]);
+    fn tick(&mut self) -> MidiState {
+        let pos_us = self.time_control.get_pos_us();
+        // if let Some(ref mut conn_out) = self.conn_out.as_mut() {
+        while self.idx < self.events.len() && pos_us >= self.events[self.idx].0 as i64 {
+            if let Some(bytes) = midly_to_raw(self.events[self.idx].2) {
+                self.conn_out.send(&bytes).unwrap();
+            }
+            self.idx += 1;
+        }
+        // }
+        if self.idx >= self.events.len() {
+            self.time_control.stop();
+            MidiState::EOF
+        } else {
+            let next_pos = self.events[self.idx].0 as i64;
+            let opt_sleep_ms = self.time_control.ms_till_pos(next_pos);
+            if let Some(sleep_ms) = opt_sleep_ms {
+                let sleep_ms = sleep_ms.min(20);
+                info!("sleep {} ms", sleep_ms);
+                thread::sleep(Duration::from_millis(sleep_ms as u64));
+            }
+            MidiState::Playing
+        }
+    }
+
+    fn service(&mut self) {
+        let new_state = match self.state {
+            MidiState::Stopped => MidiState::Stopped,
+            MidiState::EOF => MidiState::EOF,
+            MidiState::StartPlaying(pos_us) => {
+                self.start_playing(pos_us)
+            }
+            MidiState::Playing => {
+                self.tick()
+            }
         };
+        self.state = new_state
+    }
 
-        thread::sleep(Duration::from_millis(4 * 150));
+    fn work(&mut self) {
+        self.state = MidiState::StartPlaying(0);
 
-        play_note(66, 4);
-        play_note(65, 3);
-        play_note(63, 1);
-        play_note(61, 6);
-        play_note(59, 2);
-        play_note(58, 4);
-        play_note(56, 4);
-        play_note(54, 4);
+        loop {
+            match self.receiver.lock().unwrap().try_recv() {
+                Ok(MidiThreadMsg::Stop) => break,
+                Err(_) => ()
+            }
+
+            self.service();
+        }
     }
 }
 
@@ -72,18 +141,36 @@ pub fn play_midi<P: AsRef<Path>>(path: P) -> Result<()> {
     let out_port = &midi_out.ports()[1];
     let conn_out = midi_out.connect(out_port, "midir-test").map_err(|_| anyhow!("Failed to open MIDI output"))?;
 
-    let worker = MidiWorker {
-        conn_out: conn_out,
-        receiver: Arc::new(Mutex::new(rx))
-    };
+    let time_controller = TimeController::new();
+    let time_listener = time_controller.new_listener();
+
+    let path_str = String::from(path.as_ref().to_str().unwrap());
 
     let handle = thread::spawn(move|| {
-        work(worker)
+        let bytes = fs::read(path_str).unwrap();
+        let smf = Smf::parse(&bytes).unwrap();
+        let container = MidiContainer::from_buf(&smf).unwrap();
+        let events = container
+            .iter()
+            .timed(&container.header().timing)
+            .collect::<Vec<_>>();
+
+        let mut worker = MidiWorker {
+            conn_out: conn_out,
+            receiver: Arc::new(Mutex::new(rx)),
+            time_control: time_controller,
+            state: MidiState::Stopped,
+            events: events,
+            idx: 0
+        };
+
+        worker.work();
     });
 
     let thread = MidiThread {
         handle: handle,
-        sender: tx
+        sender: tx,
+        time_listener: time_listener
     };
 
     THREAD.lock().unwrap().replace(Some(thread));

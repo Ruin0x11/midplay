@@ -17,8 +17,7 @@ fn pause() {
 }
 
 fn main() {
-    // generic::play_midi("gm_on.mid");
-    generic::play_midi("Operette.mid");
+    generic::play_midi("data/Operette.mid");
     pause();
     generic::stop_midi();
 }

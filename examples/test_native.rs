@@ -17,8 +17,7 @@ fn pause() {
 }
 
 fn main() {
-    native::play_midi("gm_on.mid");
-    native::play_midi("Operette.mid");
+    native::play_midi("data/Operette.mid");
     pause();
     native::stop_midi();
 }
