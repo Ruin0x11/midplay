@@ -17,7 +17,11 @@ fn pause() {
 }
 
 fn main() {
-    generic::play_midi("data/Operette.mid");
+    generic::play_midi("data/Operette.mid").unwrap();
     pause();
-    generic::stop_midi();
+    generic::stop_midi().unwrap();
+    pause();
+    generic::play_midi("data/Marche_aux_Flambeaux.mid").unwrap();
+    pause();
+    generic::stop_midi().unwrap();
 }

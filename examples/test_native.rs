@@ -17,7 +17,11 @@ fn pause() {
 }
 
 fn main() {
-    native::play_midi("data/Operette.mid");
+    native::play_midi("data/Operette.mid").unwrap();
     pause();
-    native::stop_midi();
+    native::stop_midi().unwrap();
+    pause();
+    native::play_midi("data/Marche_aux_Flambeaux.mid").unwrap();
+    pause();
+    native::stop_midi().unwrap();
 }

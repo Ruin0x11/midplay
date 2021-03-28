@@ -37,7 +37,8 @@ struct MidiWorker<'m> {
     time_control: TimeController,
     state: MidiState,
     events: Vec<MidiTimedEvent<'m>>,
-    idx: usize
+    idx: usize,
+    looping: bool
 }
 
 struct MidiThread {
@@ -91,7 +92,7 @@ impl<'m> MidiWorker<'m> {
             let opt_sleep_ms = self.time_control.ms_till_pos(next_pos);
             if let Some(sleep_ms) = opt_sleep_ms {
                 let sleep_ms = sleep_ms.min(20);
-                info!("sleep {} ms", sleep_ms);
+                trace!("sleep {} ms", sleep_ms);
                 thread::sleep(Duration::from_millis(sleep_ms as u64));
             }
             MidiState::Playing
@@ -101,7 +102,13 @@ impl<'m> MidiWorker<'m> {
     fn service(&mut self) {
         let new_state = match self.state {
             MidiState::Stopped => MidiState::Stopped,
-            MidiState::EOF => MidiState::EOF,
+            MidiState::EOF => {
+                if self.looping {
+                    MidiState::StartPlaying(0)
+                } else {
+                    MidiState::EOF
+                }
+            }
             MidiState::StartPlaying(pos_us) => {
                 self.start_playing(pos_us)
             }
@@ -161,7 +168,8 @@ pub fn play_midi<P: AsRef<Path>>(path: P) -> Result<()> {
             time_control: time_controller,
             state: MidiState::Stopped,
             events: events,
-            idx: 0
+            idx: 0,
+            looping: true
         };
 
         worker.work();
