@@ -1,8 +1,11 @@
 extern crate midplay;
+extern crate midir;
+extern crate anyhow;
 
 use std::io;
 use std::io::prelude::*;
-use midplay::generic;
+use midplay::generic::{self, MidiPortName};
+use anyhow::{anyhow, Result};
 
 fn pause() {
     let mut stdin = io::stdin();
@@ -16,12 +19,47 @@ fn pause() {
     let _ = stdin.read(&mut [0u8]).unwrap();
 }
 
-fn main() {
-    generic::play_midi("data/Operette.mid").unwrap();
+fn get_port() -> Result<MidiPortName> {
+    let mut out_ports = generic::get_ports()?;
+    match out_ports.len() {
+        0 => Err(anyhow!("no output port found")),
+        1 => {
+            println!("Choosing the only available output port: {}", out_ports[0].name);
+            Ok(out_ports.swap_remove(0))
+        },
+        _ => {
+            println!("\nAvailable output ports:");
+            for p in out_ports.iter() {
+                println!("{}: {}", p.index, p.name);
+            }
+            print!("Please select output port: ");
+            io::stdout().flush()?;
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+
+            let index = input.trim().parse::<usize>()?;
+
+            if out_ports.get(index).is_none() {
+                return Err(anyhow!("invalid output port selected"));
+            }
+
+            Ok(out_ports.swap_remove(index))
+        }
+    }
+}
+
+fn main() -> Result<()> {
+    let port = get_port()?;
+    generic::play_midi("data/Operette.mid", &port)?;
     pause();
+
     generic::stop_midi().unwrap();
     pause();
-    generic::play_midi("data/Marche_aux_Flambeaux.mid").unwrap();
+
+    generic::play_midi("data/Marche_aux_Flambeaux.mid", &port)?;
     pause();
+
     generic::stop_midi().unwrap();
+
+    Ok(())
 }

@@ -137,16 +137,33 @@ lazy_static! {
     static ref THREAD: Mutex<RefCell<Option<MidiThread>>> = Mutex::new(RefCell::new(None));
 }
 
-pub fn play_midi<P: AsRef<Path>>(path: P) -> Result<()> {
+#[derive(Clone, Debug)]
+pub struct MidiPortName {
+    pub index: usize,
+    pub name: String
+}
+
+pub fn get_ports() -> Result<Vec<MidiPortName>>{
+    let midi_out = MidiOutput::new("midplay")?;
+
+    let out_ports = midi_out.ports();
+    Ok(out_ports.iter()
+             .enumerate()
+             .map(|(i, p)| MidiPortName { index: i, name: midi_out.port_name(p).unwrap() })
+             .collect())
+}
+
+pub fn play_midi<P: AsRef<Path>>(path: P, port: &MidiPortName) -> Result<()> {
     if is_midi_playing() {
         stop_midi()?
     }
 
-    let (tx, rx) = mpsc::channel::<MidiThreadMsg>();
-
-    let midi_out = MidiOutput::new("My Test Output")?;
-    let out_port = &midi_out.ports()[1];
+    let midi_out = MidiOutput::new("midplay")?;
+    let out_ports = midi_out.ports();
+    let out_port = out_ports.get(port.index).ok_or_else(|| anyhow!("Invalid port {}", port.index))?;
     let conn_out = midi_out.connect(out_port, "midir-test").map_err(|_| anyhow!("Failed to open MIDI output"))?;
+
+    let (tx, rx) = mpsc::channel::<MidiThreadMsg>();
 
     let time_controller = TimeController::new();
     let time_listener = time_controller.new_listener();
