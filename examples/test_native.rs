@@ -1,8 +1,10 @@
 extern crate midplay;
+extern crate anyhow;
 
 use std::io;
 use std::io::prelude::*;
 use midplay::native;
+use anyhow::Result;
 
 fn pause() {
     let mut stdin = io::stdin();
@@ -16,15 +18,21 @@ fn pause() {
     let _ = stdin.read(&mut [0u8]).unwrap();
 }
 
-fn main() {
-    native::play_midi("data/Operette.mid").unwrap();
+fn main() -> Result<()> {
+    println!("Playing.");
+    native::play_midi("data/macchi.mid")?;
     pause();
 
-    native::stop_midi().unwrap();
+    println!("Stopping.");
+    native::stop_midi()?;
     pause();
 
-    native::play_midi("data/Marche_aux_Flambeaux.mid").unwrap();
+    println!("Playing.");
+    native::play_midi("data/longnight2.mid")?;
     pause();
 
-    native::stop_midi().unwrap();
+    println!("Stopping.");
+    native::stop_midi()?;
+
+    Ok(())
 }

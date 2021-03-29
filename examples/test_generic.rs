@@ -1,5 +1,4 @@
 extern crate midplay;
-extern crate midir;
 extern crate anyhow;
 
 use std::io;
@@ -50,16 +49,21 @@ fn get_port() -> Result<MidiPortName> {
 
 fn main() -> Result<()> {
     let port = get_port()?;
-    generic::play_midi("data/Operette.mid", &port)?;
+
+    println!("Playing.");
+    generic::play_midi("data/macchi.mid", &port)?;
     pause();
 
-    generic::stop_midi().unwrap();
+    println!("Stopping.");
+    generic::stop_midi()?;
     pause();
 
-    generic::play_midi("data/Marche_aux_Flambeaux.mid", &port)?;
+    println!("Playing.");
+    generic::play_midi("data/longnight2.mid", &port)?;
     pause();
 
-    generic::stop_midi().unwrap();
+    println!("Stopping.");
+    generic::stop_midi()?;
 
     Ok(())
 }
