@@ -51,7 +51,7 @@ fn midly_to_raw<'m>(kind: &'m midly::TrackEventKind<'m>) -> Option<Vec<u8>> {
     match kind.as_live_event() {
         Some(event) => {
             let mut vec = Vec::new();
-            event.write(&mut vec);
+            event.write(&mut vec).unwrap();
             Some(vec)
         },
         None => None
@@ -119,12 +119,24 @@ impl<'m> MidiWorker<'m> {
         self.state = new_state
     }
 
+    fn stop(&mut self) {
+        // GM Reset
+        let buf = [0x7E, 0x7F, 0x09, 0x01, 0xF7];
+        let msg = midly::TrackEventKind::SysEx(&buf);
+        let bytes = midly_to_raw(&msg).unwrap();
+        self.conn_out.send(&bytes).unwrap();
+    }
+
     fn work(&mut self) {
         self.state = MidiState::StartPlaying(0);
 
         loop {
-            match self.receiver.lock().unwrap().try_recv() {
-                Ok(MidiThreadMsg::Stop) => break,
+            let msg = self.receiver.lock().unwrap().try_recv();
+            match msg {
+                Ok(MidiThreadMsg::Stop) => {
+                    self.stop();
+                    break
+                },
                 Err(_) => ()
             }
 
