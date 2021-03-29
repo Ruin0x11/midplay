@@ -4,6 +4,17 @@
 
 ## Usage
 
+```rust
+// MCI driver. (Windows only)
+use midplay::native;
+
+native::play_midi("data/CANYON.MID")?;
+assert_eq!(true, native::is_midi_playing());
+
+native::stop_midi()?;
+assert_eq!(false, native::is_midi_playing());
+```
+
 ``` rust
 // Cross-platform driver.
 use midplay::generic;
@@ -21,22 +32,11 @@ generic::stop_midi()?;
 assert_eq!(false, generic::is_midi_playing());
 ```
 
-```rust
-// MCI driver. (Windows only)
-use midplay::native;
-
-native::play_midi("data/CANYON.MID")?;
-assert_eq!(true, native::is_midi_playing());
-
-native::stop_midi()?;
-assert_eq!(false, native::is_midi_playing());
-```
-
 Run the example for each driver:
 
 ```sh
-cargo run --example test_generic
 cargo run --example test_native
+cargo run --example test_generic
 ```
 
 ## Credits
